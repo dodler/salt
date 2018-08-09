@@ -1,22 +1,14 @@
-import torch.nn.functional as F
-from training.training import Trainer
-from reader.image_reader import OpencvReader
-from reader.image_reader import PillowReader
 import torch.nn as nn
-from dataset.dataset import GenericXYDataset
-import os
-import os.path as osp
 import torch.nn.functional as F
-from torchvision.transforms import * 
-from generic_utils.segmentation.abstract import DualCompose
-from generic_utils.segmentation.abstract import ImageOnly, Dualized, MaskOnly
-from generic_utils.segmentation.dualcolor import *
-from generic_utils.segmentation.dualcrop import DualRotatePadded, DualCrop
-from generic_utils.segmentation.util_transform import DualResize, DualToTensor, DualImgsToTensor
-
-from torch.utils.data import DataLoader
-
 from generic_utils.metrics import dice_loss, iou
+from generic_utils.segmentation.abstract import DualCompose
+from generic_utils.segmentation.abstract import ImageOnly, MaskOnly
+from generic_utils.segmentation.dualcolor import *
+from generic_utils.segmentation.util_transform import DualResize, DualToTensor
+from reader.image_reader import OpencvReader
+from torch.utils.data import DataLoader
+from torchvision.transforms import *
+from training.training import Trainer
 
 from deeplab import Res_Deeplab
 
@@ -26,47 +18,6 @@ EPOCHS=200
 
 rgb_mean = (0.4914, 0.4822, 0.4465)
 rgb_std = (0.2023, 0.1994, 0.2010)
-
-class SegmentationDataset(GenericXYDataset):
-    def read_x(self, index):
-        if self.mode == 'train':
-            return self.x_reader(osp.join('/home/dhc/salt/images/',self.train_x[index]))
-        else:
-            return self.x_reader(osp.join('/home/dhc/salt/images/',self.val_x[index]))
-        
-    def read_y(self, index):
-        if self.mode == 'train':
-            return self.y_reader(osp.join('/home/dhc/salt/masks/',self.train_y[index]))
-        else:
-            return self.y_reader(osp.join('/home/dhc/salt/masks/',self.val_y[index]))
-
-
-class SegmentationPathProvider(object):
-    def __init__(self):
-        self.files = os.listdir('/home/dhc/salt/masks/')
-        self.index = 0
-    
-    def __len__(self):
-        return len(self.files)
-    
-    def __iter__(self):
-        return self
-    
-    def __next__(self):
-        if self.index > len(self.files)-1:
-            raise StopIteration
-        obj = self.files[self.index]
-        self.index += 1
-        return obj, obj
-    
-
-
-class OpencvGrayscaleReader():
-    def __call__(self, path):
-        img = cv2.imread(path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        img[img > 1] = 1
-        return img
 
 
 bce = nn.BCELoss()

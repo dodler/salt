@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
-from generic_utils.metrics import dice_loss, iou
-from generic_utils.utils import ocv2torch
+from generic_utils.metrics import iou
 from models.segmentation.unet_parts import *
 from reader.image_reader import OpencvReader
 from torch.utils.data import DataLoader
@@ -9,12 +8,13 @@ from torchvision.transforms import Normalize
 from training.training import Trainer
 
 from common import SegmentationDataset, SegmentationPathProvider, OCVMaskReader
-from current_transform import MyTransform, UnetTransform
+from current_transform import MyTransform, AlbunetTransform
+from salt_models import AlbuNet
 
-DEVICE = 2
+DEVICE = 3
 EPOCHS = 400
 
-bce = nn.BCELoss()
+bce = nn.BCEWithLogitsLoss()
 mse = nn.MSELoss()
 THRESH = 0.62
 
@@ -40,52 +40,20 @@ def mymetric(x, y):
     return iou(m, y)
 
 
-class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes):
-        super(UNet, self).__init__()
-        self.n_classes = n_classes
-        self.inc = inconv(n_channels, 64)
-        self.down1 = down(64, 128)
-        self.down2 = down(128, 256)
-        self.down3 = down(256, 512)
-        self.down4 = down(512, 512)
-        self.up1 = up(1024, 256)
-        self.up2 = up(512, 128)
-        self.up3 = up(256, 64)
-        self.up4 = up(128, 64)
-        self.outc = outconv(64, n_classes)
-
-    def forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        x = self.outc(x)
-        if self.n_classes == 1:
-            return F.sigmoid(x)
-        else:
-            return x
-
-
 if __name__ == "__main__":
-    model = UNet(1, 1).float().to(DEVICE)
-    dataset = SegmentationDataset(UnetTransform(), SegmentationPathProvider(), x_reader=OpencvReader(),
+    model = AlbuNet().float().to(DEVICE)
+    dataset = SegmentationDataset(AlbunetTransform(), SegmentationPathProvider(), x_reader=OpencvReader(),
                                   y_reader=OCVMaskReader())
 
     lrs = [1e-3, 1e-4, 1e-5]
-    batch_sizes = [96, 64, 32]
+    batch_sizes = [64, 64, 32]
 
     for i in range(1):
         if i < 2:
             optimizer = torch.optim.Adam(model.parameters(), lr=lrs[i])
         else:
             optimizer = torch.optim.SGD(model.parameters(), lr=lrs[i], momentum=0.9)
-        trainer = Trainer(myloss, mymetric, optimizer, 'unet', DEVICE)
+        trainer = Trainer(myloss, mymetric, optimizer, 'albunet', DEVICE)
 
         train_loader = DataLoader(dataset, batch_size=batch_sizes[i])
         dataset.setmode('val')
