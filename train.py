@@ -1,51 +1,25 @@
-import torch.nn as nn
-from generic_utils.metrics import dice_loss, iou
-from generic_utils.segmentation.util_transform import *
-from models.segmentation.models import LinkNet34
-from reader.image_reader import OpencvReader
-from torch.utils.data import DataLoader
-from training.training import Trainer
+import torch
+import os
+import os.path as osp
 
-from common import SegmentationPathProvider, SegmentationDataset, OCVMaskReader
-from current_transform import MyTransform
-
-THRESH = 0.9
-
-bce = nn.BCELoss()
-mse = nn.MSELoss()
+from models.salt_models import LinkNet34
+from training import train_fold
+from utils.common import norm, myloss, mymetric
 
 
-def myloss(x, y):
-    return bce(x, y.unsqueeze(1))
+def predict_linknet(model, image):
+    with torch.no_grad():
+        p = 13
+        # pad_img = cv2.copyMakeBorder(image, p + 1, p, p + 1, p, cv2.BORDER_REFLECT_101)/255.0
+        image_tensor = torch.from_numpy(image).float().permute([2, 0, 1])
+        image_tensor = norm(image_tensor)
+        mask = torch.sigmoid(model(image_tensor.unsqueeze(0).to(0)))
+        mask = mask.squeeze().cpu().numpy()  # [14:115, 13:114]
+        return mask
 
 
-def mymetric(x, y):
-    m = (x > THRESH).float()
-    return iou(m, y)
-
-
-DEVICE = 1
-EPOCHS = 400
-model = LinkNet34().float().to(DEVICE)
-# model.load_state_dict(torch.load('linknet_loss_0.5063234567642212.pth.tar'))
-dataset = SegmentationDataset(MyTransform(), SegmentationPathProvider(), x_reader=OpencvReader(),
-                              y_reader=OCVMaskReader())
-
-lrs = [1e-2, 1e-3, 1e-4]
-batch_sizes = [128,256, 512]
-
-for i in range(1):
-    if i < 2:
-        optimizer = torch.optim.Adam(model.parameters(), lr=lrs[i])
-    else:
-        optimizer = torch.optim.SGD(model.parameters(), lr=lrs[i], momentum=0.9)
-    trainer = Trainer(myloss, mymetric, optimizer, 'linknet', DEVICE)
-
-    train_loader = DataLoader(dataset, batch_size=batch_sizes[i])
-    dataset.setmode('val')
-    val_loader = DataLoader(dataset, batch_size=batch_sizes[i])
-    dataset.setmode('train')
-
-    for i in range(EPOCHS):
-        trainer.train(train_loader, model, i)
-        trainer.validate(val_loader, model)
+if __name__ == '__main__':
+    folds = [k for k in os.listdir('/root/data/') if k.endswith('.csv') and 'fold' in k]
+    folds = [osp.join('/root/data/', k) for k in folds]
+    print(folds)
+    train_fold(folds, myloss, mymetric, LinkNet34, 'linknet')
