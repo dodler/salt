@@ -16,6 +16,11 @@ def save_folds(folds):
 def main():
     n_fold = 5
     depths = pd.read_csv('/root/data/depths.csv')
+    train = pd.read_csv('/root/data/train.csv')
+
+    # train['id'] = train['id'].apply(int)
+    # depths['id'] = depths['id'].apply(int)
+    depths = train.merge(depths,on='id',how='left')
     depths.sort_values('z', inplace=True)
     depths.drop('z', axis=1, inplace=True)
     depths['fold'] = (list(range(n_fold)) * depths.shape[0])[:depths.shape[0]]

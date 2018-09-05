@@ -23,6 +23,7 @@ class MyTransform(object):
 
         self.train_transform = DualCompose([
             # Randomize(ImageOnly(EmbossAndOverlay())),
+            DualResize((128,128)),
             Rotate(15),
             RandomFlip(),
             TestToTensor(),
@@ -30,6 +31,7 @@ class MyTransform(object):
         ])
 
         self.val_transform = DualCompose([
+            DualResize((128,128)),
             TestToTensor(),
             ImageOnly(Normalize(rgb_mean, rgb_std))
         ])
@@ -69,13 +71,15 @@ class UnetRGBTransform(object):
 
         self.train_transform = DualCompose([
             # ImageOnly(RandomGamma(0.3)),
-            CustomPad(),
+            # CustomPad(),
+            DualResize((128,128)),
             Rotate(20),
             TestToTensor(),
             ImageOnly(Normalize(rgb_mean, rgb_std))
         ])
         self.val_transform = DualCompose([
-            CustomPad(),
+            # CustomPad(),
+            DualResize((128, 128)),
             TestToTensor(),
             ImageOnly(Normalize(rgb_mean, rgb_std))
         ])

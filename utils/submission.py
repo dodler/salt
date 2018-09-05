@@ -1,32 +1,17 @@
 import pickle
-import random
 
 import cv2
 import numpy as np
 import os.path as osp
 import pandas as pd
-import torch
-from PIL import Image
-from generic_utils.visualization.visualization import VisdomValueWatcher
+from scipy.stats import gmean
 from tqdm import *
 
-from albunet import predict_albunet
-from common import RLenc, TEST_IMGS_PATH
-from salt_models import AlbuNet, LinkNet34
 from train import predict_linknet
 from train_unet import predict_unet
-from albunet import AlbuNet
-from models.segmentation.unet.unet11 import UNet11
 
-
-# checkpoint_name = '/tmp/pycharm_project_959/linknet_loss_0.026078532.pth.tar'
-# checkpoint_name = '/tmp/pycharm_project_959/linknet_loss_0.054118212.pth.tar'
-# checkpoint_name = '/tmp/pycharm_project_959/linknet_loss_0.07725099.pth.tar'
-checkpoint_name = '/tmp/pycharm_project_959/linknet_loss_0.032785438.pth.tar'
-checkpoint_name = '/tmp/pycharm_project_959/linknet_no_resize_loss_0.15353289.pth.tar'
-checkpoint_name = '/tmp/pycharm_project_959/unet_loss_0.10436103.pth.tar'
-
-model = pickle.load(open(checkpoint_name, 'rb')).to(0)
+from training import predict_multiple
+from utils.common import TEST_IMGS_PATH, RLenc
 
 THRESH = 0.7
 subm = pd.read_csv('/root/data/sample_submission.csv')
@@ -49,7 +34,12 @@ def save_to_csv(encs):
 
 
 images = [read_img(path) for path in tqdm(subm['id'])]
-masks = [predict_unet(model, img) for img in tqdm(images)]
+# masks = [predict_unet(model, img) for img in tqdm(images)]
+masks = predict_multiple([
+    'linknet_fold_0_loss_0.15052992.pth.tar', 'linknet_fold_1_loss_0.15408346.pth.tar',
+    'linknet_fold_2_loss_0.30064672.pth.tar', 'linknet_fold_3_loss_0.14445938.pth.tar',
+    'linknet_fold_5_loss_0.25142106.pth.tar'
+], images, predict_linknet, gmean)
 threshold_masks = [threshold_mask(mask) for mask in tqdm(masks)]
 encodings = [RLenc(img) for img in tqdm(threshold_masks)]
 save_to_csv(encodings)

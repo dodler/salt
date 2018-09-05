@@ -173,8 +173,6 @@ class LinkNet34(nn.Module):
     def __init__(self, num_classes=1, num_channels=3, pretrained=True):
         super().__init__()
         assert num_channels == 3
-        self.downsamp = nn.Conv2d(3, 3, kernel_size=(4, 4), padding=2, dilation=3) # to get output dim=96 for unet
-        self.upsamp = nn.Conv2d(1,1, kernel_size=(2,2),padding=3,dilation=1) # for upsampling to 101
         self.num_classes = num_classes
         filters = [64, 128, 256, 512]
         resnet = torchvision.models.resnet34(pretrained=pretrained)
@@ -206,7 +204,6 @@ class LinkNet34(nn.Module):
     # noinspection PyCallingNonCallable
     def forward(self, x):
         # Encoder
-        x = self.downsamp(x)
         x = self.firstconv(x)
         x = self.firstbn(x)
         x = self.firstrelu(x)
@@ -232,7 +229,7 @@ class LinkNet34(nn.Module):
         if self.num_classes > 1:
             return F.log_softmax(f5, dim=1)
 
-        return self.upsamp(f5)
+        return f5
 
 
 class UNet16(nn.Module):

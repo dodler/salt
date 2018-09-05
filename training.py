@@ -9,11 +9,14 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from generic_utils.output_watchers import ClassificationWatcher
 from generic_utils.utils import AverageMeter
-from generic_utils.visualization.visualization import VisdomValueWatcher
 from torch.utils.data import DataLoader
 
 from utils.common import SegmentationDataset, SegmentationPathProvider
 from utils.current_transform import MyTransform
+from models.salt_models import LinkNet34
+from tqdm import *
+
+from utils.visualization import VisdomValueWatcher
 
 VAL_LOSS = 'val loss'
 VAL_ACC = 'val metric'
@@ -21,29 +24,40 @@ TRAIN_ACC_OUT = 'train metric'
 TRAIN_LOSS_OUT = 'train loss'
 
 LR = 1e-3
-BATCH_SIZE=128
-EPOCHS=150
+BATCH_SIZE = 128
+EPOCHS = 200
 DEVICE = 0
 
 
-def train_fold(folds, loss,metric, ModelClass, base_checkpoint_name):
+def predict_multiple(model_dump_paths, images, predict_func, average_func):
+    predictions = []
+    for mdl_dump_path in model_dump_paths:
+        mdl_dump_path = pickle.load(open(mdl_dump_path, 'rb')).to(DEVICE)
+        masks = [predict_func(mdl_dump_path, img) for img in tqdm(images)]
+        predictions.append(masks)
+
+    predictions = np.array(predictions)
+    return average_func(predictions, axis=0)
+
+
+def train_fold(folds, loss, metric, ModelClass, base_checkpoint_name):
     for i, fold in enumerate(folds):
-        print('doing fold',fold)
+        print('doing fold', fold)
         model = ModelClass().float().to(DEVICE)
         dataset = SegmentationDataset(MyTransform(), SegmentationPathProvider(fold),
                                       x_reader=OpencvReader(),
                                       y_reader=OpencvReader())
 
         optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-        trainer = Trainer(loss, metric, optimizer, base_checkpoint_name, DEVICE)
-
+        trainer = Trainer(loss, metric, optimizer, 'linknet_fold_' + str(i), base_checkpoint_name + '_fold_' + str(i), DEVICE)
         train_loader = DataLoader(dataset, batch_size=BATCH_SIZE)
         dataset.setmode('val')
         val_loader = DataLoader(dataset, batch_size=BATCH_SIZE)
         dataset.setmode('train')
 
-        for i in range(EPOCHS):
-            trainer.train(train_loader, model, i)
+        print('loaders ok')
+        for epch in range(EPOCHS):
+            trainer.train(train_loader, model, epch)
             trainer.validate(val_loader, model)
 
 
@@ -98,7 +112,7 @@ class Trainer(object):
         expected_masks = []
         with torch.no_grad():
             for batch_idx, (input, target) in enumerate(val_loader):
-                input_var = Variable(input.to(self.device))
+                input_var = input.to(self.device)
                 output = torch.sigmoid(model(input_var))
                 predicted_masks.append(output.cpu())
                 expected_masks.append(target.cpu())
@@ -131,8 +145,8 @@ class Trainer(object):
         end = time.time()
         for batch_idx, (input, target) in enumerate(val_loader):
             with torch.no_grad():
-                input_var = Variable(input.to(self.device))
-                target_var = Variable(target.to(self.device))
+                input_var = input.to(self.device)
+                target_var = target.to(self.device)
 
             output = model(input_var)
 
@@ -165,6 +179,7 @@ class Trainer(object):
         return losses.avg, acc.avg
 
     def train(self, train_loader, model, epoch):
+        print(self.device)
         batch_time = AverageMeter()
         data_time = AverageMeter()
         losses = AverageMeter()
@@ -177,8 +192,8 @@ class Trainer(object):
         for batch_idx, (input, target) in enumerate(train_loader):
             data_time.update(time.time() - end)
 
-            input_var = torch.autograd.Variable(input.to(self.device))
-            target_var = torch.autograd.Variable(target.to(self.device))
+            input_var = input.to(self.device)
+            target_var = target.to(self.device)
 
             self.optimizer.zero_grad()
             output = model(input_var)

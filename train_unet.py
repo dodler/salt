@@ -3,10 +3,11 @@ from reader.image_reader import OpencvReader
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
-from salt_models import UNet16
-from common import SegmentationDataset, SegmentationPathProvider, bce_with_logits, norm
-from current_transform import UnetRGBTransform
+
+from models.salt_models import UNet16
 from training import Trainer
+from utils.common import norm, bce_with_logits, SegmentationDataset, SegmentationPathProvider
+from utils.current_transform import UnetRGBTransform
 
 DEVICE = 1
 EPOCHS = 400
@@ -42,14 +43,14 @@ def mymetric(x, y):
 
 if __name__ == "__main__":
     model = UNet16().float().to(DEVICE)
-    dataset = SegmentationDataset(UnetRGBTransform(), SegmentationPathProvider(), x_reader=OpencvReader(),
+    dataset = SegmentationDataset(UnetRGBTransform(), SegmentationPathProvider('/root/data/train.csv'), x_reader=OpencvReader(),
                                   y_reader=OpencvReader())
 
     lrs = [1e-3, 1e-4, 1e-5]
     batch_sizes = [16, 64, 32]
 
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9)
-    trainer = Trainer(myloss, mymetric, optimizer, 'unet', DEVICE)
+    trainer = Trainer(myloss, mymetric, optimizer, 'unet', None, DEVICE)
 
     train_loader = DataLoader(dataset, batch_size=batch_sizes[0])
     dataset.setmode('val')
