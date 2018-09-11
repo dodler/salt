@@ -1,3 +1,5 @@
+import pickle
+
 import cv2
 from reader.image_reader import OpencvReader
 from torch.utils.data import DataLoader
@@ -6,11 +8,11 @@ import torch.nn as nn
 
 from models.salt_models import UNet16
 from training import Trainer
-from utils.common import norm, bce_with_logits, SegmentationDataset, SegmentationPathProvider
-from utils.current_transform import UnetRGBTransform
+from utils.common import norm, bce_with_logits, SegmentationDataset, SegmentationPathProvider, cut_target
+from utils.current_transform import UnetRGBTransform, gray_norm
 
 DEVICE = 1
-EPOCHS = 400
+EPOCHS = 200
 
 bce = nn.BCELoss()
 mse = nn.MSELoss()
@@ -20,11 +22,30 @@ THRESH = 0.62
 # norm = Normalize((0.5,), (0.5,))
 
 def predict_unet(model, image):
-    p = 13
-    pad_img = cv2.copyMakeBorder(image, p + 1, p, p + 1, p, cv2.BORDER_REFLECT_101) / 255.0
-    image_tensor = norm(torch.from_numpy(pad_img).float().permute([2, 0, 1]))
-    mask = model(image_tensor.unsqueeze(0).to(0))
-    return mask.squeeze().detach().cpu().numpy()[14:115, 13:114]
+    # p = 13
+    # pad_img = cv2.copyMakeBorder(image, p + 1, p, p + 1, p, cv2.BORDER_REFLECT_101)[:, :, 0:1] / 255.0
+    import numpy as np
+    t_img = cv2.resize(image, (128,128))
+    t_img = cv2.cvtColor(t_img, cv2.COLOR_BGR2GRAY) / 255.0
+
+    fliped = np.fliplr(t_img.copy()).copy()
+
+    t_img = t_img[:, :, np.newaxis]
+    fliped = fliped[:, :, np.newaxis]
+
+    image_tensor = gray_norm(torch.from_numpy(t_img).float().permute([2, 0, 1]))
+    mask = model(image_tensor.unsqueeze(0).to(1))
+    mask = mask.squeeze().detach().cpu().numpy()
+
+    fliped_tensor = gray_norm(torch.from_numpy(fliped).float().permute([2, 0, 1]))
+    fliped_mask = model(fliped_tensor.unsqueeze(0).to(1))
+    fliped_mask = fliped_mask.squeeze().detach().cpu().numpy()
+    fliped_mask = np.fliplr(fliped_mask).copy()
+
+    result = (mask + fliped_mask) / 2.0
+    # result = mask
+
+    return cv2.resize(result, (101,101))
 
 
 def myloss(x, y):
@@ -42,14 +63,14 @@ def mymetric(x, y):
 
 
 if __name__ == "__main__":
-    model = UNet16().float().to(DEVICE)
+    model = UNet16(num_channels=1).float().to(DEVICE)
     dataset = SegmentationDataset(UnetRGBTransform(), SegmentationPathProvider('/root/data/train.csv'), x_reader=OpencvReader(),
                                   y_reader=OpencvReader())
 
     lrs = [1e-3, 1e-4, 1e-5]
-    batch_sizes = [16, 64, 32]
+    batch_sizes = [20, 64, 32]
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     trainer = Trainer(myloss, mymetric, optimizer, 'unet', None, DEVICE)
 
     train_loader = DataLoader(dataset, batch_size=batch_sizes[0])

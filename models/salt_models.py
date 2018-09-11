@@ -169,15 +169,78 @@ class AlbuNet(nn.Module):
         return x_out
 
 
+class Linknet152(nn.Module):
+    def __init__(self, num_classes=1, num_channels=3, pretrained=True):
+        super().__init__()
+        self.num_classes = num_classes
+        filters = [64 * 4, 128 * 4, 256 * 4, 512 * 4]
+        resnet = torchvision.models.resnet152(pretrained=pretrained)
+
+        self.firstconv = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.firstbn = resnet.bn1
+        self.firstrelu = resnet.relu
+        self.firstmaxpool = resnet.maxpool
+        self.encoder1 = resnet.layer1
+        self.encoder2 = resnet.layer2
+        self.encoder3 = resnet.layer3
+        self.encoder4 = resnet.layer4
+
+        # Decoder
+        self.decoder4 = DecoderBlockLinkNet(filters[3], filters[2])
+        self.decoder3 = DecoderBlockLinkNet(filters[2], filters[1])
+        self.decoder2 = DecoderBlockLinkNet(filters[1], filters[0])
+        self.decoder1 = DecoderBlockLinkNet(filters[0], filters[0])
+        self.decoder0 = DecoderBlockLinkNet(filters[0], 64)
+
+        # Final Classifier
+        self.finaldeconv1 = nn.ConvTranspose2d(filters[0], 32, 3, stride=2)
+        self.finalrelu1 = nn.ReLU(inplace=True)
+        self.finalconv2 = nn.Conv2d(32, 32, 3)
+        self.finalrelu2 = nn.ReLU(inplace=True)
+        self.finalconv3 = nn.Conv2d(32, num_classes, 2, padding=1)
+        self.dropout = nn.Dropout(p=0.4)
+        self.dropout1 = nn.Dropout(p=0.4)
+        self.dropout2 = nn.Dropout(p=0.4)
+        self.e1_dropout = nn.Dropout(p=0.4)
+
+    def forward(self, x):
+        # Encoder
+        x = self.firstconv(x)
+        x = self.firstbn(x)
+        x = self.firstrelu(x)
+        x = self.firstmaxpool(x)
+        e1 = self.e1_dropout(self.encoder1(x))
+        e2 = self.dropout1(self.encoder2(e1))
+        e3 = self.encoder3(e2)
+        e4 = self.dropout2(self.encoder4(e3))
+        # Decoder with Skip Connections
+        d4 = self.decoder4(e4) + e3
+        d3 = self.decoder3(d4) + e2
+        d2 = self.decoder2(d3) + e1
+        d1 = self.decoder1(d2)
+
+        # Final Classification
+        f1 = self.finaldeconv1(d1)
+        f2 = self.dropout(self.finalrelu1(f1))
+        f3 = self.finalconv2(f2)
+        f4 = self.finalrelu2(f3)
+        f5 = self.finalconv3(f4)
+
+        if self.num_classes > 1:
+            return F.log_softmax(f5, dim=1)
+
+        return f5
+
+
 class LinkNet34(nn.Module):
     def __init__(self, num_classes=1, num_channels=3, pretrained=True):
         super().__init__()
-        assert num_channels == 3
         self.num_classes = num_classes
         filters = [64, 128, 256, 512]
         resnet = torchvision.models.resnet34(pretrained=pretrained)
 
-        self.firstconv = resnet.conv1
+        self.firstconv = nn.Conv2d(in_channels=num_channels, out_channels=64, padding=4, dilation=5, kernel_size=10, stride=1, bias=False)
+        # self.firstconv = resnet.conv1
         self.firstbn = resnet.bn1
         self.firstrelu = resnet.relu
         self.firstmaxpool = resnet.maxpool
@@ -194,17 +257,18 @@ class LinkNet34(nn.Module):
 
         # Final Classifier
         self.finaldeconv1 = nn.ConvTranspose2d(filters[0], 32, 3, stride=2)
-        self.finalrelu1 = nn.ReLU(inplace=True)
+        self.finalrelu1 = nn.ReLU(inplace=False)
         self.finalconv2 = nn.Conv2d(32, 32, 3)
         self.finalrelu2 = nn.ReLU(inplace=True)
-        self.finalconv3 = nn.Conv2d(32, num_classes, 2, padding=1)
-        self.dropout = nn.Dropout()
-        self.e1_dropout = nn.Dropout()
+        self.finalconv3 = nn.Conv2d(32, num_classes,kernel_size=7,dilation=5, padding=2)
+        self.dropout = nn.Dropout(p=0.4)
+        self.e1_dropout = nn.Dropout(p=0.4)
 
     # noinspection PyCallingNonCallable
     def forward(self, x):
         # Encoder
         x = self.firstconv(x)
+        # x should be 16 64 64 64
         x = self.firstbn(x)
         x = self.firstrelu(x)
         x = self.firstmaxpool(x)
@@ -233,7 +297,7 @@ class LinkNet34(nn.Module):
 
 
 class UNet16(nn.Module):
-    def __init__(self, num_classes=1, num_filters=32, pretrained=False):
+    def __init__(self, num_classes=1, num_filters=32, pretrained=True, num_channels=3):
         """
         :param num_classes:
         :param num_filters:
@@ -243,17 +307,16 @@ class UNet16(nn.Module):
         """
         super().__init__()
         self.num_classes = num_classes
-
         self.pool = nn.MaxPool2d(2, 2)
 
         if pretrained == 'vgg':
             self.encoder = models.vgg16(pretrained=True).features
         else:
             self.encoder = models.vgg16(pretrained=False).features
-
+        print(self.encoder[0], self.encoder[2])
         self.relu = nn.ReLU(inplace=True)
 
-        self.conv1 = nn.Sequential(self.encoder[0],
+        self.conv1 = nn.Sequential(nn.Conv2d(num_channels, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
                                    self.relu,
                                    self.encoder[2],
                                    self.relu)

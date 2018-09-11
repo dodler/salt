@@ -14,6 +14,17 @@ TRAIN_IMAGES_PATH = '/root/data/train/images/'
 TRAIN_MASKS_PATH = '/root/data/train/masks/'
 TEST_IMGS_PATH = '/root/data/test/images'
 
+x_offset = 14
+x_end_offset = 13
+y_offset = 13
+y_end_offset = 14
+
+
+def cut_target(raw_mask):
+    assert raw_mask.shape[0] == raw_mask.shape[1]
+    h = raw_mask.shape[0]
+    return raw_mask.copy()[x_offset:h - x_end_offset, y_offset:h - y_end_offset]
+
 
 def gamma_transform(img, gamma):
     if img.dtype == np.uint8:
@@ -30,9 +41,9 @@ class RandomGamma:
     def __init__(self, max_amp):
         self.max_amp = max_amp
 
-    def __call__(self, img):
+    def __call__(self, img, mask):
         gamma = random.uniform(1 - self.max_amp, 1 + self.max_amp)
-        return gamma_transform(img, gamma)
+        return gamma_transform(img, gamma), mask
 
 
 class SegmentationDataset(GenericXYDataset):
@@ -49,7 +60,7 @@ class SegmentationDataset(GenericXYDataset):
             return self.y_reader(osp.join(TRAIN_MASKS_PATH, self.val_y[index]))
 
 
-class SegmentationPathProvider(object): # rename to names provider
+class SegmentationPathProvider(object):  # rename to names provider
     def __init__(self, paths_csv):
         self.files = pd.read_csv(paths_csv)
         self.index = 0
@@ -85,12 +96,23 @@ class Rotate:
         return rotateImage(img, target_angle), rotateImage(mask, target_angle)
 
 
+class TestSingleChannelToTensor():
+    def __call__(self, img, mask):
+        return torch.from_numpy(img[np.newaxis, :, :] / 255.0).float(), \
+               torch.from_numpy(mask[np.newaxis, :, :] / 255.0).float()
+
+
 class TestToTensor(object):
     def __call__(self, img, mask):
         mask = mask[:, :, 0:1] // 255
         img = img / 255.0
         return torch.from_numpy(img).float().permute([2, 0, 1]), \
                torch.from_numpy(mask).float().permute([2, 0, 1])
+
+
+class TestReader(object):
+    def __call__(self, path):
+        return cv2.imread(path, cv2.IMREAD_GRAYSCALE)
 
 
 kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
@@ -107,6 +129,14 @@ def myloss(x, y):
 THRESH = 0.5
 
 
+def iou(img_true, img_pred):
+    i = np.sum((img_true * img_pred) > 0)
+    u = np.sum((img_true + img_pred) > 0)
+    if u == 0:
+        return u
+    return i / u
+
+
 def mymetric(x, y, threshold=THRESH):
     m = (x > threshold).float()
     pred_t = m.view(-1).float()
@@ -120,6 +150,7 @@ def mymetric(x, y, threshold=THRESH):
 rgb_mean = (0.4914, 0.4822, 0.4465)
 rgb_std = (0.2023, 0.1994, 0.2010)
 norm = Normalize(rgb_mean, rgb_std)
+
 test_to_tensor = TestToTensor()
 
 
@@ -227,10 +258,9 @@ class To01():
         return img / 255.0
 
 
-class RandomFlip():
+class HorizontalFlip():
     def __call__(self, img, mask):
-        how = random.choice([0, 1, -1])
-        return cv2.flip(img, how), cv2.flip(mask, how)
+        return cv2.flip(img, 1), cv2.flip(mask, 1)
 
 
 class RandomBlur():
@@ -253,41 +283,58 @@ class CustomPad:
         return pad_img, pad_mask
 
 
+def rle_encode(mask_image):
+    pixels = mask_image.flatten()
+    # We avoid issues with '1' at the start or end (at the corners of
+    # the original image) by setting those pixels to '0' explicitly.
+    # We do not expect these to be non-zero for an accurate mask,
+    # so this should not harm the score.
+    pixels[0] = 0
+    pixels[-1] = 0
+    runs = np.where(pixels[1:] != pixels[:-1])[0] + 2
+    runs[1::2] = runs[1::2] - runs[:-1:2]
+    return runs
+
+
 def RLenc(img, order='F', format=True):
     """
-    img is binary mask image, shape (r,c)
-    order is down-then-right, i.e. Fortran
-    format determines if the order needs to be preformatted (according to submission rules) or not
+        img is binary mask image, shape (r,c)
+        order is down-then-right, i.e. Fortran
+        format determines if the order needs to be preformatted (according to submission rules) or not
 
-    returns run length as an array or string (if format is True)
-    """
-    bytes = img.reshape(img.shape[0] * img.shape[1], order=order)
-    runs = []  ## list of run lengths
-    r = 0  ## the current run length
-    pos = 1  ## count starts from 1 per WK
-    for c in bytes:
-        if (c == 0):
-            if r != 0:
-                runs.append((pos, r))
-                pos += r
-                r = 0
-            pos += 1
-        else:
-            r += 1
+        returns run length as an array or string (if format is True)
+        """
 
-    # if last run is unsaved (i.e. data ends with 1)
-    if r != 0:
-        runs.append((pos, r))
-        pos += r
-        r = 0
-
-    if format:
-        z = ''
-
-        for rr in runs:
-            z += '{} {} '.format(rr[0], rr[1])
-        return z[:-1]
+    if not format:
+        return rle_encode(img)
     else:
-        return runs
+        bytes = img.reshape(img.shape[0] * img.shape[1], order=order)
+        runs = []  ## list of run lengths
+        r = 0  ## the current run length
+        pos = 1  ## count starts from 1 per WK
+        for c in bytes:
+            if (c == 0):
+                if r != 0:
+                    runs.append((pos, r))
+                    pos += r
+                    r = 0
+                pos += 1
+            else:
+                r += 1
+
+        # if last run is unsaved (i.e. data ends with 1)
+        if r != 0:
+            runs.append((pos, r))
+            pos += r
+            r = 0
+
+        if format:
+            z = ''
+
+            for rr in runs:
+                z += '{} {} '.format(rr[0], rr[1])
+            return z[:-1]
+        else:
+            return runs
 
 # pred_dict = {id_[:-4]:RLenc(np.round(preds_test_upsampled[i] > best_thres)) for i,id_ in tqdm_notebook(enumerate(test_ids))}

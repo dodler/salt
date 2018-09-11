@@ -3,20 +3,17 @@ import time
 
 import numpy as np
 import torch
-from reader.image_reader import OpencvReader
-from torch.autograd import Variable
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-
 from generic_utils.output_watchers import ClassificationWatcher
 from generic_utils.utils import AverageMeter
+from reader.image_reader import OpencvReader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+from tqdm import *
 
 from utils.common import SegmentationDataset, SegmentationPathProvider
 from utils.current_transform import MyTransform
-from models.salt_models import LinkNet34
-from tqdm import *
-
 from utils.visualization import VisdomValueWatcher
+from models.salt_models import LinkNet34
 
 VAL_LOSS = 'val loss'
 VAL_ACC = 'val metric'
