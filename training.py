@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from tqdm import *
 
-from utils.common import SegmentationDataset, SegmentationPathProvider
+from utils.common import SegmentationDataset, SegmentationPathProvider, PandasProvider
 from utils.current_transform import MyTransform
 from utils.visualization import VisdomValueWatcher
 from models.salt_models import LinkNet34
@@ -21,7 +21,7 @@ TRAIN_ACC_OUT = 'train metric'
 TRAIN_LOSS_OUT = 'train loss'
 
 LR = 1e-3
-BATCH_SIZE = 128
+BATCH_SIZE = 1
 EPOCHS = 200
 DEVICE = 0
 
@@ -37,23 +37,28 @@ def predict_multiple(model_dump_paths, images, predict_func, average_func):
     return average_func(predictions, axis=0)
 
 
-def train_fold(folds, loss, metric, ModelClass, base_checkpoint_name):
-    for i, fold in enumerate(folds):
+def train_fold(folds, loss, metric, ModelClass, base_checkpoint_name, model_name,
+               epochs=EPOCHS, batch_size=BATCH_SIZE, device=DEVICE):
+    for fold in folds['fold'].unique():
         print('doing fold', fold)
-        model = ModelClass().float().to(DEVICE)
-        dataset = SegmentationDataset(MyTransform(), SegmentationPathProvider(fold),
-                                      x_reader=OpencvReader(),
-                                      y_reader=OpencvReader())
+        model = ModelClass().float().to(device)
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-        trainer = Trainer(loss, metric, optimizer, 'linknet_fold_' + str(i), base_checkpoint_name + '_fold_' + str(i), DEVICE)
-        train_loader = DataLoader(dataset, batch_size=BATCH_SIZE)
-        dataset.setmode('val')
-        val_loader = DataLoader(dataset, batch_size=BATCH_SIZE)
-        dataset.setmode('train')
+        optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9)
+        trainer = Trainer(loss, metric, optimizer, model_name + '_fold_' + str(fold),
+                          base_checkpoint_name + '_fold_' + str(fold), device)
 
-        print('loaders ok')
-        for epch in range(EPOCHS):
+        train_loader = DataLoader(SegmentationDataset(MyTransform(),
+                                                      PandasProvider(folds[folds['fold'] != fold]),
+                                                      x_reader=OpencvReader(),
+                                                      y_reader=OpencvReader(), split=False), batch_size=batch_size,
+                                  shuffle=True, num_workers=1)
+
+        val_loader = DataLoader(SegmentationDataset(MyTransform(),
+                                                    PandasProvider(folds[folds['fold'] == fold]),
+                                                    x_reader=OpencvReader(),
+                                                    y_reader=OpencvReader(), split=False), batch_size=batch_size,
+                                num_workers=1)
+        for epch in range(epochs):
             trainer.train(train_loader, model, epch)
             trainer.validate(val_loader, model)
 
@@ -102,36 +107,6 @@ class Trainer(object):
 
         return best
 
-    def optimize_threshold(self, val_loader, model, thresholds, metric):
-        model.eval()
-
-        predicted_masks = []
-        expected_masks = []
-        with torch.no_grad():
-            for batch_idx, (input, target) in enumerate(val_loader):
-                input_var = input.to(self.device)
-                output = torch.sigmoid(model(input_var))
-                predicted_masks.append(output.cpu())
-                expected_masks.append(target.cpu())
-
-        print(len(predicted_masks))
-        best_thresh = thresholds[0]
-        best_metric = 0
-        for threshold in thresholds:
-            avg_metric = 0.0
-            for i in range(len(predicted_masks)):
-                expected = expected_masks[i]
-                predicted = predicted_masks[i]
-                avg_metric += metric(expected, predicted, threshold)
-
-            avg_metric /= float(len(predicted_masks))
-            print(avg_metric)
-            if avg_metric > best_metric:
-                best_metric = avg_metric
-                best_thresh = threshold
-
-        return best_metric, best_thresh
-
     def validate(self, val_loader, model):
         batch_time = AverageMeter()
         losses = AverageMeter()
@@ -145,17 +120,16 @@ class Trainer(object):
                 input_var = input.to(self.device)
                 target_var = target.to(self.device)
 
-            output = model(input_var)
+                output = model(input_var)
 
-            loss = self.criterion(output, target_var)
-            losses.update(loss.detach(), input.size(0))
+                loss = self.criterion(output, target_var)
+                losses.update(loss.detach(), input.size(0))
+                metric_val = self.metric(output, target_var)
+                acc.update(metric_val)
 
-            metric_val = self.metric(output, target_var)
-            acc.update(metric_val)
-
-            self.watcher.log_value(VAL_ACC, metric_val)
-            self.watcher.log_value(VAL_LOSS, loss.detach())
-            self.watcher.display_every_iter(batch_idx, input_var, target, torch.sigmoid(output))
+                self.watcher.log_value(VAL_ACC, metric_val)
+                self.watcher.log_value(VAL_LOSS, loss.detach())
+                self.watcher.display_every_iter(batch_idx, input_var, target, output)
 
             batch_time.update(time.time() - end)
             end = time.time()
@@ -170,7 +144,8 @@ class Trainer(object):
         self.scheduler.step(losses.avg)
 
         if self.is_best(losses.avg) and self.epoch_num % 3 == 0:
-            pickle.dump(model, open(self.get_checkpoint_name(losses.avg), 'wb'))
+            self.save_checkpoint(model.state_dict(), self.get_checkpoint_name(losses.avg))
+            # pickle.dump(model, open(self.get_checkpoint_name(losses.avg), 'wb'))
 
         self.epoch_num += 1
         return losses.avg, acc.avg
@@ -192,23 +167,23 @@ class Trainer(object):
             input_var = input.to(self.device)
             target_var = target.to(self.device)
 
-            self.optimizer.zero_grad()
             output = model(input_var)
 
             loss = self.criterion(output, target_var)
 
+            self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
 
-            output = torch.sigmoid(output)
-            losses.update(loss.item(), input.size(0))
+            with torch.no_grad():
+                # output = torch.sigmoid(output)
+                losses.update(loss.item(), input.size(0))
+                metric_val = self.metric(output, target_var)  # todo - add output dimention assertion
+                acc.update(metric_val, batch_idx)
 
-            metric_val = self.metric(output, target_var)  # todo - add output dimention assertion
-            acc.update(metric_val, batch_idx)
-
-            self.watcher.log_value(TRAIN_ACC_OUT, metric_val)
-            self.watcher.log_value(TRAIN_LOSS_OUT, loss.item())
-            self.watcher.display_every_iter(batch_idx, input_var, target, output)
+                self.watcher.log_value(TRAIN_ACC_OUT, metric_val)
+                self.watcher.log_value(TRAIN_LOSS_OUT, loss.item())
+                self.watcher.display_every_iter(batch_idx, input_var, target, output)
 
             # measure elapsed time
             batch_time.update(time.time() - end)

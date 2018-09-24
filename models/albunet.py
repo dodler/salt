@@ -1,6 +1,5 @@
 import cv2
 import torch
-from models.segmentation.unet_parts import *
 from reader.image_reader import OpencvReader
 from torch.utils.data import DataLoader
 from torchvision.transforms import Normalize
@@ -10,7 +9,7 @@ from training import Trainer
 from utils.common import SegmentationDataset, SegmentationPathProvider, myloss, mymetric
 from utils.current_transform import AlbunetTransform
 
-DEVICE = 1
+DEVICE = 0
 EPOCHS = 400
 
 THRESH = 0.5
@@ -34,7 +33,8 @@ def predict_albunet(model, image):
 
 if __name__ == "__main__":
     model = AlbuNet().float().to(DEVICE)
-    dataset = SegmentationDataset(AlbunetTransform(), SegmentationPathProvider(), x_reader=OpencvReader(),
+    dataset = SegmentationDataset(AlbunetTransform(), SegmentationPathProvider('/root/data/train.csv'),
+                                  x_reader=OpencvReader(),
                                   y_reader=OpencvReader())
 
     lrs = [1e-3, 1e-4, 1e-5]

@@ -9,17 +9,16 @@ from scipy.stats import gmean
 from tqdm import *
 
 from test_metric import get_iou_vector
-from train import predict_linknet
 from train_unet import predict_unet
 
 from training import predict_multiple
-from utils.common import TEST_IMGS_PATH, RLenc, TRAIN_IMAGES_PATH, TRAIN_MASKS_PATH, cut_target
+from utils.common import TEST_IMGS_PATH
 
-THRESH = 0.4
+THRESH = 0.7
 
 
 def read_img(img_name, path=TEST_IMGS_PATH):
-    return cv2.imread(osp.join(path, img_name + '.png'))
+    return cv2.imread(osp.join(path, img_name + '.png'), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
 
 
 def threshold_mask(mask, thresh=THRESH):
@@ -35,9 +34,9 @@ def save_to_csv(encs, subm):
 
 
 def make_raw_predict(subm, ckpt_name):
-    model = pickle.load(open(ckpt_name, 'rb')).float().to(1)
+    model = pickle.load(open(ckpt_name, 'rb')).float().to(0)
     images = [read_img(path) for path in tqdm(subm['id'])]
-    return [predict_unet(model, img) for img in tqdm(images)]
+    return [predict_linknet(model, img) for img in tqdm(images)]
 
 
 def inference(ckpt_name):
@@ -65,13 +64,17 @@ def dense(img, mask_prob):
     return dense_crf(img, threshold_mask(cut_target(mask_prob)[:, :, np.newaxis]).astype(np.float32))
 
 
+def threshold_np_array(masks):
+    pass
+
+
 def optimize_threshold(ckpt_name, ):
-    model = pickle.load(open(ckpt_name, 'rb')).float().to(1)
-    train_ids = pd.read_csv('/root/data/train.csv').sample(n=3000)
+    model = pickle.load(open(ckpt_name, 'rb')).float().to(0)
+    train_ids = pd.read_csv('/root/data/train.csv')
     images = [read_img(path, TRAIN_IMAGES_PATH) for path in tqdm(train_ids['id'])]
     gt_masks = [read_img(path, TRAIN_MASKS_PATH) for path in tqdm(train_ids['id'])]
-    gt_masks = [m[:, :, 0:1] // 255 for m in gt_masks]
-    masks = [predict_unet(model, img) for img in tqdm(images)]
+    gt_masks = [m // 255 for m in gt_masks]
+    masks = [predict_linknet(model, img) for img in tqdm(images)]
 
     max_metric = 0
     max_thresh = 0
@@ -85,12 +88,12 @@ def optimize_threshold(ckpt_name, ):
     return masks, max_metric, max_thresh
 
 
-ckpt_path = 'unet_loss_0.13917223.pth.tar'
-masks, metric, thresh = optimize_threshold(ckpt_path)
-print(thresh, metric)
-THRESH = thresh
+ckpt_path = 'linknet34_loss_0.049851496.pth.tar'
+# masks, metric, thresh = optimize_threshold(ckpt_path)
+# print(thresh, metric)
+THRESH = 0.7
 # make_submit(pickle.load(open('test_prediction_' + ckpt_path + '_.pkl', 'rb')),
 #             pd.read_csv('/root/data/sample_submission.csv'))
 test_masks = inference(ckpt_path)
-pickle.dump(masks, open('prediction_' + ckpt_path + '_.pkl', 'wb'))
+# pickle.dump(masks, open('prediction_' + ckpt_path + '_.pkl', 'wb'))
 pickle.dump(test_masks, open('test_prediction_' + ckpt_path + '_.pkl', 'wb'))

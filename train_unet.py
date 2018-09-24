@@ -22,18 +22,12 @@ THRESH = 0.62
 # norm = Normalize((0.5,), (0.5,))
 
 def predict_unet(model, image):
-    # p = 13
-    # pad_img = cv2.copyMakeBorder(image, p + 1, p, p + 1, p, cv2.BORDER_REFLECT_101)[:, :, 0:1] / 255.0
     import numpy as np
-    t_img = cv2.resize(image, (128,128))
-    t_img = cv2.cvtColor(t_img, cv2.COLOR_BGR2GRAY) / 255.0
+    fliped = np.fliplr(image.copy()).copy()
 
-    fliped = np.fliplr(t_img.copy()).copy()
-
-    t_img = t_img[:, :, np.newaxis]
     fliped = fliped[:, :, np.newaxis]
 
-    image_tensor = gray_norm(torch.from_numpy(t_img).float().permute([2, 0, 1]))
+    image_tensor = gray_norm(torch.from_numpy(image[:, :, np.newaxis]).float().permute([2, 0, 1]))
     mask = model(image_tensor.unsqueeze(0).to(1))
     mask = mask.squeeze().detach().cpu().numpy()
 
