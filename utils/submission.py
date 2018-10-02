@@ -1,99 +1,108 @@
-import pickle
-
-import cv2
+import glob
+import os
+import torch.utils.data as data
 import numpy as np
-import os.path as osp
-import pandas as pd
-from generic_utils.segmentation import dense_crf
-from scipy.stats import gmean
+import torch
 from tqdm import *
-
-from test_metric import get_iou_vector
-from train_unet import predict_unet
-
-from training import predict_multiple
-from utils.common import TEST_IMGS_PATH
+import pandas as pd
+from models.salt_models import Linknet152, LinkNet34, UNet16, WiderResnetNet, AlbuNet
+from models.vanilla_unet import UNet
+from utils.optimize_threshold import optimize_thresh, filter_image
+from utils.ush_dataset import TGSSaltDataset
 
 THRESH = 0.7
 
+directory = '/root/data/salt/'
+n_fold = 8
+depths = pd.read_csv(os.path.join("/root/data/salt/", 'depths.csv'))
+depths.sort_values('z', inplace=True)
+depths['fold'] = (list(range(n_fold)) * depths.shape[0])[:depths.shape[0]]
+depths.head()
 
-def read_img(img_name, path=TEST_IMGS_PATH):
-    return cv2.imread(osp.join(path, img_name + '.png'), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+train_path = os.path.join(directory, 'train', 'images')
+test_path = os.path.join(directory, 'test', 'images')
+y_train = os.path.join(directory, 'train', 'masks')
+
+file_list = list(depths['id'].values)
+
+train_images = os.listdir(train_path)
+train = pd.DataFrame(train_images, columns=['id'])
+train.id = train.id.apply(lambda x: x[:-4]).astype(str)
+train = pd.merge(train, depths, on='id', how='left')
+
+test_path = os.path.join(directory, 'test')
+test_file_list = glob.glob(os.path.join(test_path, 'images', '*.png'))
+test_file_list = [f.split('/')[-1].split('.')[0] for f in test_file_list]
+test_file_list[:3], test_path
+
+print("len(test_file_len): {}".format(len(test_file_list)))
+test_dataset = TGSSaltDataset(test_path, test_file_list, is_test=True)
+torch.manual_seed(0)
+
+DEVICE = 3
+model = UNet().to(DEVICE)
+model.eval()
+# model.load_state_dict(torch.load('/tmp/pycharm_project_959/linknet34_loss_0.15610147.pth.tar'))
+# model.load_state_dict(torch.load('/tmp/pycharm_project_959/unet16_loss_0.13023119.pth.tar'))
+# model.load_state_dict(torch.load('/tmp/pycharm_project_959/wider_res_net_loss_0.5635576.pth.tar'))
+# model.load_state_dict(torch.load('/tmp/pycharm_project_959/linknet34_loss_0.41243768.pth.tar'))
+# model.load_state_dict(torch.load('/tmp/pycharm_project_959/unet_carvana_loss_0.115800455.pth.tar'))
+# model.load_state_dict(torch.load('/tmp/pycharm_project_959/linknet_heavy_aug_loss_0.24247672.pth.tar'))
+model.load_state_dict(torch.load('/tmp/pycharm_project_959/unet_carvana_light_loss_0.13975419.pth.tar'))
+
+height, width = 101, 101
+
+if height % 32 == 0:
+    y_min_pad = 0
+    y_max_pad = 0
+else:
+    y_pad = 32 - height % 32
+    y_min_pad = int(y_pad / 2)
+    y_max_pad = y_pad - y_min_pad
+
+if width % 32 == 0:
+    x_min_pad = 0
+    x_max_pad = 0
+else:
+    x_pad = 32 - width % 32
+    x_min_pad = int(x_pad / 2)
+    x_max_pad = x_pad - x_min_pad
+
+all_predictions = []
+for image in tqdm(data.DataLoader(test_dataset, batch_size=4, shuffle=False)):
+    image = image[0].type(torch.float).to(DEVICE)
+    y_pred = model(image)
+    y_pred = torch.sigmoid(y_pred).detach().cpu().numpy()
+    y_pred = y_pred[:, 0, y_min_pad:128 - y_max_pad,
+             x_min_pad:128 - x_max_pad]
+
+    all_predictions.append(y_pred)
+
+all_predictions = np.vstack(all_predictions)
+
+best_t, best_score = optimize_thresh(train.id.values, model, DEVICE, 4)
+
+threshold = best_t
+binary_prediction = (all_predictions > threshold).astype(bool)
 
 
-def threshold_mask(mask, thresh=THRESH):
-    cpy = mask.copy()
-    cpy[cpy > thresh] = 1
-    cpy[cpy <= thresh] = 0
-    return cpy.astype(np.int)
+def rle_encoding(x):
+    dots = np.where(x.T.flatten() == 1)[0]
+    run_lengths = []
+    prev = -2
+    for b in dots:
+        if (b > prev + 1): run_lengths.extend((b + 1, 0))
+        run_lengths[-1] += 1
+        prev = b
+    return run_lengths
 
 
-def save_to_csv(encs, subm):
-    subm.rle_mask = encs
-    subm.to_csv('my_subm.csv', index=False)
+all_masks = []
+for p_mask in tqdm(list(binary_prediction)):
+    p_mask = filter_image(p_mask)
+    p_mask = rle_encoding(p_mask)
+    all_masks.append(' '.join(map(str, p_mask)))
 
-
-def make_raw_predict(subm, ckpt_name):
-    model = pickle.load(open(ckpt_name, 'rb')).float().to(0)
-    images = [read_img(path) for path in tqdm(subm['id'])]
-    return [predict_linknet(model, img) for img in tqdm(images)]
-
-
-def inference(ckpt_name):
-    subm = pd.read_csv('/root/data/sample_submission.csv')
-    masks = make_raw_predict(subm, ckpt_name)
-    make_submit(masks, subm)
-    return masks
-
-
-def rle_encode(im):
-    pixels = im.flatten(order='F')
-    pixels = np.concatenate([[0], pixels, [0]])
-    runs = np.where(pixels[1:] != pixels[:-1])[0] + 1
-    runs[1::2] -= runs[::2]
-    return ' '.join(str(x) for x in runs)
-
-
-def make_submit(raw_masks, subm):
-    threshold_masks = [threshold_mask(mask) for mask in tqdm(raw_masks)]
-    encodings = [rle_encode(img) for img in tqdm(threshold_masks)]
-    save_to_csv(encodings, subm)
-
-
-def dense(img, mask_prob):
-    return dense_crf(img, threshold_mask(cut_target(mask_prob)[:, :, np.newaxis]).astype(np.float32))
-
-
-def threshold_np_array(masks):
-    pass
-
-
-def optimize_threshold(ckpt_name, ):
-    model = pickle.load(open(ckpt_name, 'rb')).float().to(0)
-    train_ids = pd.read_csv('/root/data/train.csv')
-    images = [read_img(path, TRAIN_IMAGES_PATH) for path in tqdm(train_ids['id'])]
-    gt_masks = [read_img(path, TRAIN_MASKS_PATH) for path in tqdm(train_ids['id'])]
-    gt_masks = [m // 255 for m in gt_masks]
-    masks = [predict_linknet(model, img) for img in tqdm(images)]
-
-    max_metric = 0
-    max_thresh = 0
-    for i in tqdm(range(20, 100)):
-        thrsh = float(i) / 100.0
-        iou = get_iou_vector(np.array(gt_masks), np.array([threshold_mask(mask, thrsh) for mask in masks]))
-        if iou > max_metric:
-            max_metric = iou
-            max_thresh = thrsh
-
-    return masks, max_metric, max_thresh
-
-
-ckpt_path = 'linknet34_loss_0.049851496.pth.tar'
-# masks, metric, thresh = optimize_threshold(ckpt_path)
-# print(thresh, metric)
-THRESH = 0.7
-# make_submit(pickle.load(open('test_prediction_' + ckpt_path + '_.pkl', 'rb')),
-#             pd.read_csv('/root/data/sample_submission.csv'))
-test_masks = inference(ckpt_path)
-# pickle.dump(masks, open('prediction_' + ckpt_path + '_.pkl', 'wb'))
-pickle.dump(test_masks, open('test_prediction_' + ckpt_path + '_.pkl', 'wb'))
+submit = pd.DataFrame([test_file_list, all_masks]).T
+submit.columns = ['id', 'rle_mask']
+submit.to_csv('my_subm.csv', index=False)

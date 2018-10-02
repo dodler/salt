@@ -84,7 +84,7 @@ class UNet11(nn.Module):
         if self.num_classes > 1:
             x_out = F.log_softmax(self.final(dec1), dim=1)
         else:
-            x_out = torch.sigmoid(self.final(dec1))
+            x_out = self.final(dec1)
 
         return x_out
 
@@ -144,6 +144,7 @@ class AlbuNet(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
 
         self.encoder = torchvision.models.resnet34(pretrained=pretrained)
+        self.encoder.requires_grad=False
 
         self.relu = nn.ReLU(inplace=True)
 
@@ -190,7 +191,7 @@ class AlbuNet(nn.Module):
         if self.num_classes > 1:
             x_out = F.log_softmax(self.final(dec0), dim=1)
         else:
-            x_out = torch.sigmoid(self.final(dec0))
+            x_out = self.final(dec0)
 
         return x_out
 
@@ -202,8 +203,8 @@ class Linknet152(nn.Module):
         filters = [64 * 4, 128 * 4, 256 * 4, 512 * 4]
         resnet = torchvision.models.resnet152(pretrained=pretrained)
 
-        self.firstconv = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        # self.firstconv = resnet.conv1
+        # self.firstconv = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.firstconv = resnet.conv1
         self.firstbn = resnet.bn1
         self.firstrelu = resnet.relu
         self.firstmaxpool = resnet.maxpool
@@ -256,7 +257,7 @@ class Linknet152(nn.Module):
         if self.num_classes > 1:
             return F.log_softmax(f5, dim=1)
         else:
-            return torch.sigmoid(f5)
+            return f5
 
 
 class LinkNet34(nn.Module):
@@ -266,8 +267,7 @@ class LinkNet34(nn.Module):
         filters = [64, 128, 256, 512]
         resnet = torchvision.models.resnet34(pretrained=pretrained)
 
-        # self.firstconv = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.firstconv = resnet.conv1
+        self.firstconv = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.firstbn = resnet.bn1
         self.firstrelu = resnet.relu
         self.firstmaxpool = resnet.maxpool
@@ -318,7 +318,7 @@ class LinkNet34(nn.Module):
         if self.num_classes > 1:
             return F.log_softmax(f5, dim=1)
         else:
-            return torch.sigmoid(f5)
+            return f5
 
 
 def convolution_block(filters, size, strides=(1, 1), padding='same', activation=True):
@@ -472,14 +472,13 @@ class UNet16(nn.Module):
         if self.num_classes > 1:
             x_out = F.log_softmax(self.final(dec1), dim=1)
         else:
-            x_out = torch.sigmoid(self.final(dec1))
+            x_out = self.final(dec1)
 
         return x_out
 
 
 class WiderResnetNet(nn.Module):
     def forward(self, x):
-        x = self.conv0(x)
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
@@ -487,7 +486,7 @@ class WiderResnetNet(nn.Module):
         x = self.dec1(x)
         x = self.dec2(x)
         x = self.final_conv(x)
-        return torch.sigmoid(x)
+        return x
 
     def __init__(self, num_channels=1):
         super(WiderResnetNet, self).__init__()
@@ -501,9 +500,7 @@ class WiderResnetNet(nn.Module):
         filters_in = 640
         filters_delta = 256
 
-        self.dec1 = DecoderBlockV2(filters_in, filters_in + filters_delta,
-                                   filters_in)
-        self.dec2 = DecoderBlockV2(filters_in, filters_in + filters_delta,
-                                   filters_in - filters_delta)
+        self.dec1 = DecoderBlockV2(640, 512, 256)
+        self.dec2 = DecoderBlockV2(256,128,64)
 
-        self.final_conv = nn.Conv2d(filters_in - filters_delta, out_channels=1, kernel_size=(1,1))
+        self.final_conv = nn.Conv2d(64, out_channels=1, kernel_size=(1,1))

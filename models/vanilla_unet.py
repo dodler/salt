@@ -1,86 +1,31 @@
-import torch
-import torch.nn.functional as F
-from torch import nn
-
-def initialize_weights(*models):
-    for model in models:
-        for module in model.modules():
-            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
-                nn.init.kaiming_normal(module.weight)
-                if module.bias is not None:
-                    module.bias.data.zero_()
-            elif isinstance(module, nn.BatchNorm2d):
-                module.weight.data.fill_(1)
-                module.bias.data.zero_()
-
-class _EncoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, dropout=False):
-        super(_EncoderBlock, self).__init__()
-        layers = [
-            nn.Conv2d(in_channels, out_channels, kernel_size=3),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-        ]
-        if dropout:
-            layers.append(nn.Dropout())
-        layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
-        self.encode = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.encode(x)
-
-
-class _DecoderBlock(nn.Module):
-    def __init__(self, in_channels, middle_channels, out_channels):
-        super(_DecoderBlock, self).__init__()
-        self.decode = nn.Sequential(
-            nn.Conv2d(in_channels, middle_channels, kernel_size=3),
-            nn.BatchNorm2d(middle_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(middle_channels, middle_channels, kernel_size=3),
-            nn.BatchNorm2d(middle_channels),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=2, stride=2),
-        )
-
-    def forward(self, x):
-        return self.decode(x)
+# full assembly of the sub-parts to form the complete net
+from models import inconv, down, up, outconv
+import torch.nn as nn
 
 
 class UNet(nn.Module):
-    def __init__(self, num_channels=1,num_classes=1):
+    def __init__(self, n_channels=3, n_classes=1):
         super(UNet, self).__init__()
-        self.enc1 = _EncoderBlock(num_channels, 64)
-        self.enc2 = _EncoderBlock(64, 128)
-        self.enc3 = _EncoderBlock(128, 256, dropout=True)
-        self.center = _DecoderBlock(512/2, 1024/2, 512/2)
-        # self.dec4 = _DecoderBlock(1024, 512, 256)
-        self.dec3 = _DecoderBlock(512, 256, 128)
-        self.dec2 = _DecoderBlock(256, 128, 64)
-        self.dec1 = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=3),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, kernel_size=3),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-        )
-        self.final = nn.Conv2d(64, num_classes, kernel_size=1)
-        initialize_weights(self)
+        self.inc = inconv(n_channels, 64)
+        self.down1 = down(64, 128)
+        self.down2 = down(128, 256)
+        self.down3 = down(256, 512)
+        self.down4 = down(512, 512)
+        self.up1 = up(1024, 256)
+        self.up2 = up(512, 128)
+        self.up3 = up(256, 64)
+        self.up4 = up(128, 64)
+        self.outc = outconv(64, n_classes)
 
     def forward(self, x):
-        enc1 = self.enc1(x)
-        enc2 = self.enc2(enc1)
-        enc3 = self.enc3(enc2)
-        # enc4 = self.enc4(enc3)
-        center = self.center(enc3)
-        print(center.size())
-        # dec4 = self.dec4(torch.cat([center, F.upsample(enc4, center.size()[2:], mode='bilinear')], 1))
-        dec3 = self.dec3(torch.cat([center, F.upsample(enc3, dec4.size()[2:], mode='bilinear')], 1))
-        dec2 = self.dec2(torch.cat([dec3, F.upsample(enc2, dec3.size()[2:], mode='bilinear')], 1))
-        dec1 = self.dec1(torch.cat([dec2, F.upsample(enc1, dec2.size()[2:], mode='bilinear')], 1))
-        final = self.final(dec1)
-        return F.upsample(final, x.size()[2:], mode='bilinear')
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+        x = self.outc(x)
+        return x

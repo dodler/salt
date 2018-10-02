@@ -1,18 +1,15 @@
 import os
 
-import os.path as osp
 import pandas as pd
 import torch
 
-from models.salt_models import WiderResnetNet, LinkNet34, AlbuNet
+from models.salt_models import Linknet152, AlbuNet, UNet16, LinkNet34
 from training import Trainer
 from utils.common import myloss, iou_numpy, \
     count_parameters, get_loader, lovasz
-from utils.current_transform import strong_aug, light_aug
+from utils.current_transform import strong_aug
 from utils.ush_dataset import TGSSaltDataset
-
-MODEL_NAME = 'albunet'
-
+import os.path as osp
 
 from albumentations import (
     PadIfNeeded,
@@ -33,7 +30,7 @@ from albumentations import (
     RandomBrightness
 )
 
-MODEL_NAME = 'albunet_heavy'
+MODEL_NAME = 'linknet_heavy_aug'
 
 original_height= 101
 original_width = 101
@@ -72,11 +69,11 @@ if __name__ == '__main__':
     train = pd.merge(train, depths, on='id', how='left')
     train[:3]
 
-    DEVICE = 0
-    EPOCHS = 30
-    BATCH_SIZE = 48
+    DEVICE = 2
+    EPOCHS = 200
+    BATCH_SIZE = 128
 
-    model = AlbuNet().type(torch.float).to(DEVICE)
+    model = LinkNet34().type(torch.float).to(DEVICE)
 
     print(count_parameters(model))
 
@@ -90,7 +87,7 @@ if __name__ == '__main__':
     val_dataset = TGSSaltDataset(osp.join(directory, 'train'), x_val,
                                  is_test=False, is_val=True)
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
     trainer = Trainer(myloss, iou_numpy, optimizer, MODEL_NAME, None, DEVICE)
 
     train_loader = get_loader(train_dataset, 'train', BATCH_SIZE)
@@ -100,9 +97,8 @@ if __name__ == '__main__':
         trainer.train(train_loader, model, i)
         trainer.validate(val_loader, model)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
     trainer = Trainer(lovasz, iou_numpy, optimizer, MODEL_NAME, None, DEVICE)
-    trainer.best_loss = 1e10
 
     EPOCHS = 200
 

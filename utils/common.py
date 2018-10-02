@@ -12,6 +12,21 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import Normalize
 
 from utils.ext import reflect_center_pad
+from utils.lovasz import lovasz_hinge
+
+import logging as l
+
+logFormatter = l.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+logger = l.getLogger()
+logger.setLevel(l.DEBUG)
+
+fileHandler = l.FileHandler('log.txt')
+fileHandler.setFormatter(logFormatter)
+logger.addHandler(fileHandler)
+
+consoleHandler = l.StreamHandler()
+consoleHandler.setFormatter(logFormatter)
+logger.addHandler(consoleHandler)
 
 TRAIN_IMAGES_PATH = '/root/data/salt/train/images/'
 TRAIN_MASKS_PATH = '/root/data/salt/train/masks/'
@@ -104,7 +119,11 @@ bce_with_logits = nn.BCEWithLogitsLoss()
 
 
 def myloss(x, y):
-    return bce(x.squeeze(), y.squeeze())
+    return bce_with_logits(x.squeeze(), y.squeeze())
+
+
+def lovasz(logits, gt):
+    return lovasz_hinge(logits.squeeze(), gt.squeeze())
 
 
 THRESH = 0.5
@@ -121,7 +140,8 @@ def iou(img_true, img_pred):
 SMOOTH = 1e-6
 
 
-def iou_numpy(outputs: np.array, labels: np.array):
+def iou_numpy(outputs, labels):
+    outputs = torch.sigmoid(outputs)
     outputs = (outputs.cpu().detach().numpy() > THRESH).astype(np.uint8)
     labels = (labels.cpu().detach().numpy() > THRESH).astype(np.uint8)
 
@@ -224,6 +244,7 @@ class RandomBlur():
         else:
             return img
 
+
 class CustomPad:
     def __call__(self, img, mask):
         return reflect_center_pad(img), reflect_center_pad(mask, mask=True)
@@ -234,11 +255,7 @@ def count_parameters(model):
 
 
 def get_loader(dataset, mode, batch_size):
-    dataset.setmode(mode)
-    if mode == 'train':
-        return DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    else:
-        return DataLoader(dataset, batch_size=batch_size)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
 
 def rle_encode(mask_image):

@@ -1,17 +1,16 @@
 import os
 
-import os.path as osp
 import pandas as pd
 import torch
 
-from models.salt_models import WiderResnetNet, LinkNet34, AlbuNet
+from models.salt_models import Linknet152, AlbuNet, UNet16, LinkNet34
+from models.vanilla_unet import UNet
 from training import Trainer
 from utils.common import myloss, iou_numpy, \
     count_parameters, get_loader, lovasz
 from utils.current_transform import strong_aug, light_aug
 from utils.ush_dataset import TGSSaltDataset
-
-MODEL_NAME = 'albunet'
+import os.path as osp
 
 
 from albumentations import (
@@ -33,23 +32,15 @@ from albumentations import (
     RandomBrightness
 )
 
-MODEL_NAME = 'albunet_heavy'
+MODEL_NAME = 'unet_carvana_light'
 
 original_height= 101
 original_width = 101
 
 aug = Compose([
-    VerticalFlip(p=0.5),
-    RandomRotate90(p=0.5),
-    OneOf([
-        ElasticTransform(p=0.5, alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03),
-        GridDistortion(p=0.5),
-        OpticalDistortion(p=1, distort_limit=2, shift_limit=0.5)
-        ], p=0.8),
-    CLAHE(p=0.8),
-    RandomContrast(p=0.8),
-    RandomBrightness(p=0.8),
-    RandomGamma(p=0.8)])
+    VerticalFlip(p=0.1),
+    HorizontalFlip(p=0.5),
+    RandomGamma(p=0.3)])
 
 if __name__ == '__main__':
 
@@ -72,11 +63,11 @@ if __name__ == '__main__':
     train = pd.merge(train, depths, on='id', how='left')
     train[:3]
 
-    DEVICE = 0
-    EPOCHS = 30
-    BATCH_SIZE = 48
+    DEVICE = 1
+    EPOCHS = 250
+    BATCH_SIZE = 32
 
-    model = AlbuNet().type(torch.float).to(DEVICE)
+    model = UNet().type(torch.float).to(DEVICE)
 
     print(count_parameters(model))
 
@@ -100,9 +91,8 @@ if __name__ == '__main__':
         trainer.train(train_loader, model, i)
         trainer.validate(val_loader, model)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
     trainer = Trainer(lovasz, iou_numpy, optimizer, MODEL_NAME, None, DEVICE)
-    trainer.best_loss = 1e10
 
     EPOCHS = 200
 

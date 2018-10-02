@@ -1,7 +1,7 @@
 from albumentations import (
     HorizontalFlip, ShiftScaleRotate,
     RandomBrightness, RandomContrast, Compose,
-    VerticalFlip)
+    VerticalFlip, Blur, RandomCrop)
 from generic_utils.segmentation.abstract import DualCompose
 
 from utils.common import Randomize, CustomPad
@@ -9,11 +9,22 @@ from utils.common import Randomize, CustomPad
 
 def strong_aug():
     return Compose([
-        HorizontalFlip(),
-        VerticalFlip(),
-        RandomBrightness(limit=0.1, p=0.5),
-        RandomContrast(limit=0.1, p=0.5),
-        ShiftScaleRotate(shift_limit=0.05, scale_limit=0., rotate_limit=0., ),
+        ShiftScaleRotate(shift_limit=0.5,
+                         scale_limit=0.4,
+                         rotate_limit=15, p=0.9),
+        RandomBrightness(limit=0.4, p=0.8),
+        RandomContrast(limit=0.4, p=0.8),
+        Blur(blur_limit=5, p=0.5),
+        HorizontalFlip(p=0.5),
+    ])
+
+
+def light_aug():
+    return Compose([
+        RandomBrightness(limit=0.1, p=0.2),
+        RandomContrast(limit=0.1, p=0.2),
+        Blur(blur_limit=3, p=0.2),
+        HorizontalFlip(p=0.3),
     ])
 
 

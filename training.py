@@ -10,10 +10,10 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from tqdm import *
 
-from utils.common import SegmentationDataset, SegmentationPathProvider, PandasProvider
+from utils.common import SegmentationDataset, PandasProvider
 from utils.current_transform import MyTransform
 from utils.visualization import VisdomValueWatcher
-from models.salt_models import LinkNet34
+from utils.common import logger
 
 VAL_LOSS = 'val loss'
 VAL_ACC = 'val metric'
@@ -176,7 +176,6 @@ class Trainer(object):
             self.optimizer.step()
 
             with torch.no_grad():
-                # output = torch.sigmoid(output)
                 losses.update(loss.item(), input.size(0))
                 metric_val = self.metric(output, target_var)  # todo - add output dimention assertion
                 acc.update(metric_val, batch_idx)
@@ -189,11 +188,11 @@ class Trainer(object):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            print('\rEpoch: {0}  [{1}/{2}]\t'
+            logger.debug('\rEpoch: {0}  [{1}/{2}]\t'
                   'ETA: {time:.0f}/{eta:.0f} s\t'
                   'data loading: {data_time.val:.3f} s\t'
                   'loss {loss.avg:.4f}\t'
                   'metric {acc.avg:.4f}\t'.format(
                 epoch, batch_idx, len(train_loader), eta=batch_time.avg * len(train_loader),
-                time=batch_time.sum, data_time=data_time, loss=losses, acc=acc), end='')
+                time=batch_time.sum, data_time=data_time, loss=losses, acc=acc))
         return losses.avg, acc.avg
