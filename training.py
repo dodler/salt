@@ -6,7 +6,7 @@ import torch
 from generic_utils.output_watchers import ClassificationWatcher
 from generic_utils.utils import AverageMeter
 from reader.image_reader import OpencvReader
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 from torch.utils.data import DataLoader
 from tqdm import *
 
@@ -81,7 +81,7 @@ class Trainer(object):
         self.watcher = VisdomValueWatcher(model_name)
         self.output_watcher = ClassificationWatcher(self.watcher)
         self.optimizer = optimizer
-        self.scheduler = ReduceLROnPlateau(optimizer, 'min')
+        self.scheduler = CosineAnnealingLR(optimizer, eta_min=1e-5, T_max=1e6)
         self.best_loss = np.inf
         self.model_name = model_name
         self.device = device
@@ -98,7 +98,9 @@ class Trainer(object):
         torch.save(state, name)
 
     def get_checkpoint_name(self, loss):
-        return self.base_checkpoint_name + '_loss_' + str(loss.detach().cpu().numpy()) + '.pth.tar'
+        print(loss)
+        # return self.base_checkpoint_name + '_loss_' + str(loss) + '.pth.tar'
+        return self.base_checkpoint_name + '_best.pth.tar'
 
     def is_best(self, avg_loss):
         best = avg_loss < self.best_loss
@@ -123,27 +125,28 @@ class Trainer(object):
                 output = model(input_var)
 
                 loss = self.criterion(output, target_var)
-                losses.update(loss.detach(), input.size(0))
+                losses.update(loss.item())
                 metric_val = self.metric(output, target_var)
                 acc.update(metric_val)
 
-                self.watcher.log_value(VAL_ACC, metric_val)
-                self.watcher.log_value(VAL_LOSS, loss.detach())
                 self.watcher.display_every_iter(batch_idx, input_var, target, output)
 
             batch_time.update(time.time() - end)
             end = time.time()
 
-            print('\rValidation: [{0}/{1}]\t'
-                  'ETA: {time:.0f}/{eta:.0f} s\t'
-                  'loss {loss.avg:.4f}\t'
-                  'metric {acc.avg:.4f}\t'.format(
-                batch_idx, len(val_loader), eta=batch_time.avg * len(val_loader),
-                time=batch_time.sum, loss=losses, acc=acc), end='')
+        print('\rValidation: [{0}/{1}]\t'
+              'ETA: {time:.0f}/{eta:.0f} s\t'
+              'loss {loss.avg:.4f}\t'
+              'metric {acc.avg:.4f}\t'.format(
+            batch_idx, len(val_loader), eta=batch_time.avg * len(val_loader),
+            time=batch_time.sum, loss=losses, acc=acc), end='')
+
+        self.watcher.log_value(VAL_ACC, acc.avg)
+        self.watcher.log_value(VAL_LOSS, losses.avg)
         print()
         self.scheduler.step(losses.avg)
 
-        if self.is_best(losses.avg) and self.epoch_num % 3 == 0:
+        if self.is_best(losses.avg):
             self.save_checkpoint(model.state_dict(), self.get_checkpoint_name(losses.avg))
             # pickle.dump(model, open(self.get_checkpoint_name(losses.avg), 'wb'))
 
@@ -151,7 +154,6 @@ class Trainer(object):
         return losses.avg, acc.avg
 
     def train(self, train_loader, model, epoch):
-        print(self.device)
         batch_time = AverageMeter()
         data_time = AverageMeter()
         losses = AverageMeter()
@@ -176,23 +178,22 @@ class Trainer(object):
             self.optimizer.step()
 
             with torch.no_grad():
-                losses.update(loss.item(), input.size(0))
+                losses.update(loss.item())
                 metric_val = self.metric(output, target_var)  # todo - add output dimention assertion
-                acc.update(metric_val, batch_idx)
-
-                self.watcher.log_value(TRAIN_ACC_OUT, metric_val)
-                self.watcher.log_value(TRAIN_LOSS_OUT, loss.item())
+                acc.update(metric_val)
                 self.watcher.display_every_iter(batch_idx, input_var, target, output)
 
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
 
-            logger.debug('\rEpoch: {0}  [{1}/{2}]\t'
-                  'ETA: {time:.0f}/{eta:.0f} s\t'
-                  'data loading: {data_time.val:.3f} s\t'
-                  'loss {loss.avg:.4f}\t'
-                  'metric {acc.avg:.4f}\t'.format(
-                epoch, batch_idx, len(train_loader), eta=batch_time.avg * len(train_loader),
-                time=batch_time.sum, data_time=data_time, loss=losses, acc=acc))
+        logger.debug('\rEpoch: {0}  [{1}/{2}]\t'
+              'ETA: {time:.0f}/{eta:.0f} s\t'
+              'data loading: {data_time.val:.3f} s\t'
+              'loss {loss.avg:.4f}\t'
+              'metric {acc.avg:.4f}\t'.format(
+            epoch, batch_idx, len(train_loader), eta=batch_time.avg * len(train_loader),
+            time=batch_time.sum, data_time=data_time, loss=losses, acc=acc))
+        self.watcher.log_value(TRAIN_ACC_OUT, metric_val)
+        self.watcher.log_value(TRAIN_LOSS_OUT, loss.item())
         return losses.avg, acc.avg

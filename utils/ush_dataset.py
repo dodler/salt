@@ -3,8 +3,6 @@ import os
 import cv2
 import torch
 
-directory = '/root/data/'
-
 
 def load_image(path):
     """

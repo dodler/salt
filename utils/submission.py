@@ -7,14 +7,15 @@ from tqdm import *
 import pandas as pd
 from models.salt_models import Linknet152, LinkNet34, UNet16, WiderResnetNet, AlbuNet
 from models.vanilla_unet import UNet
+from utils.common import get_directory
 from utils.optimize_threshold import optimize_thresh, filter_image
 from utils.ush_dataset import TGSSaltDataset
 
 THRESH = 0.7
 
-directory = '/root/data/salt/'
+directory = get_directory()
 n_fold = 8
-depths = pd.read_csv(os.path.join("/root/data/salt/", 'depths.csv'))
+depths = pd.read_csv(os.path.join(directory, 'depths.csv'))
 depths.sort_values('z', inplace=True)
 depths['fold'] = (list(range(n_fold)) * depths.shape[0])[:depths.shape[0]]
 depths.head()
@@ -39,16 +40,10 @@ print("len(test_file_len): {}".format(len(test_file_list)))
 test_dataset = TGSSaltDataset(test_path, test_file_list, is_test=True)
 torch.manual_seed(0)
 
-DEVICE = 3
+DEVICE = 0
 model = UNet().to(DEVICE)
 model.eval()
-# model.load_state_dict(torch.load('/tmp/pycharm_project_959/linknet34_loss_0.15610147.pth.tar'))
-# model.load_state_dict(torch.load('/tmp/pycharm_project_959/unet16_loss_0.13023119.pth.tar'))
-# model.load_state_dict(torch.load('/tmp/pycharm_project_959/wider_res_net_loss_0.5635576.pth.tar'))
-# model.load_state_dict(torch.load('/tmp/pycharm_project_959/linknet34_loss_0.41243768.pth.tar'))
-# model.load_state_dict(torch.load('/tmp/pycharm_project_959/unet_carvana_loss_0.115800455.pth.tar'))
-# model.load_state_dict(torch.load('/tmp/pycharm_project_959/linknet_heavy_aug_loss_0.24247672.pth.tar'))
-model.load_state_dict(torch.load('/tmp/pycharm_project_959/unet_carvana_light_loss_0.13975419.pth.tar'))
+model.load_state_dict(torch.load('/tmp/pycharm_project_231/unet_best.pth.tar'))
 
 height, width = 101, 101
 
@@ -69,7 +64,7 @@ else:
     x_max_pad = x_pad - x_min_pad
 
 all_predictions = []
-for image in tqdm(data.DataLoader(test_dataset, batch_size=4, shuffle=False)):
+for image in tqdm(data.DataLoader(test_dataset, batch_size=1, shuffle=False)):
     image = image[0].type(torch.float).to(DEVICE)
     y_pred = model(image)
     y_pred = torch.sigmoid(y_pred).detach().cpu().numpy()

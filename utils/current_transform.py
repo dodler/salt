@@ -24,7 +24,7 @@ def light_aug():
         RandomBrightness(limit=0.1, p=0.2),
         RandomContrast(limit=0.1, p=0.2),
         Blur(blur_limit=3, p=0.2),
-        HorizontalFlip(p=0.3),
+        HorizontalFlip(p=0.7),
     ])
 
 

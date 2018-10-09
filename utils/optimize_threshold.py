@@ -1,7 +1,9 @@
 import torch
 import numpy as np
 import torch.utils.data as data
+import os
 
+from utils.common import get_directory
 from utils.ush_dataset import TGSSaltDataset
 
 height, width = 101, 101
@@ -42,10 +44,11 @@ def iou_numpy(outputs: np.array, labels: np.array, thresh=0.5):
 
 
 def filter_image(img):
-    if img.sum() < 100:
+    if img.sum() < 400:
         return np.zeros(img.shape).astype(bool)
     else:
         return img.astype(bool)
+
 
 
 def optimize_thresh(x_val, model, device, batch_size):
@@ -53,7 +56,7 @@ def optimize_thresh(x_val, model, device, batch_size):
     val_masks = []
     val_iou = []
 
-    val_dataset = TGSSaltDataset("/root/data/salt/train/", x_val,
+    val_dataset = TGSSaltDataset(os.path.join(get_directory(), "train/"), x_val,
                                  is_test=False, is_val=True)
     print(x_val)
 

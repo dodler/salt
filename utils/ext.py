@@ -1,28 +1,8 @@
-import torch.utils.data as data
 import os
+
 import cv2
 import torch
-import pandas as pd
-import numpy as np
-
-directory = '/root/data/salt/'
-n_fold = 8
-depths = pd.read_csv('/root/data/salt/depths.csv')
-depths.sort_values('z', inplace=True)
-depths['fold'] = (list(range(n_fold)) * depths.shape[0])[:depths.shape[0]]
-depths.head()
-
-train_path = os.path.join(directory, 'train', 'images')
-test_path = os.path.join(directory, 'test', 'images')
-y_train = os.path.join(directory, 'train', 'masks')
-
-file_list = list(depths['id'].values)
-
-train_images = os.listdir(train_path)
-train = pd.DataFrame(train_images, columns=['id'])
-train.id = train.id.apply(lambda x: x[:-4]).astype(str)
-train = pd.merge(train, depths, on='id', how='left')
-train[:3]
+import torch.utils.data as data
 
 
 def reflect_center_pad(img, mask=False):

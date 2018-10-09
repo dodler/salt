@@ -144,7 +144,6 @@ class AlbuNet(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
 
         self.encoder = torchvision.models.resnet34(pretrained=pretrained)
-        self.encoder.requires_grad=False
 
         self.relu = nn.ReLU(inplace=True)
 
@@ -226,14 +225,12 @@ class Linknet152(nn.Module):
         self.finalconv2 = nn.Conv2d(32, 32, 3)
         self.finalrelu2 = nn.ReLU(inplace=True)
         self.finalconv3 = nn.Conv2d(32, num_classes, 2, padding=1)
-        self.dropout = nn.Dropout(p=0.4)
-        self.dropout1 = nn.Dropout(p=0.4)
-        self.dropout2 = nn.Dropout(p=0.4)
-        self.e1_dropout = nn.Dropout(p=0.4)
+        self.dropout = nn.Dropout(p=0.8)
 
     def forward(self, x):
         # Encoder
         x = self.firstconv(x)
+        x = self.dropout(x)
         x = self.firstbn(x)
         x = self.firstrelu(x)
         x = self.firstmaxpool(x)
@@ -267,7 +264,7 @@ class LinkNet34(nn.Module):
         filters = [64, 128, 256, 512]
         resnet = torchvision.models.resnet34(pretrained=pretrained)
 
-        self.firstconv = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.firstconv = resnet.conv1
         self.firstbn = resnet.bn1
         self.firstrelu = resnet.relu
         self.firstmaxpool = resnet.maxpool
@@ -293,7 +290,6 @@ class LinkNet34(nn.Module):
     def forward(self, x):
         # Encoder
         x = self.firstconv(x)
-        # x should be 16 64 64 64
         x = self.firstbn(x)
         x = self.firstrelu(x)
         x = self.firstmaxpool(x)

@@ -27,10 +27,11 @@ class inconv(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(inconv, self).__init__()
         self.conv = double_conv(in_ch, out_ch)
+        self.dropout = nn.Dropout2d(p=0.7)
 
     def forward(self, x):
         x = self.conv(x)
-        return x
+        return self.dropout(x)
 
 
 class down(nn.Module):

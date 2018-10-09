@@ -124,7 +124,7 @@ class VisdomValueWatcher(object):
     def output(self, name):
         if name in self._wins.keys():
 
-            y = self.movingaverage(self._watchers[name], 20)
+            y = self.movingaverage(self._watchers[name], 1)
             x = np.array(range(len(y)))
 
             self._vis.line(Y=y, X=x,

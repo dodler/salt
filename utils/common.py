@@ -37,6 +37,9 @@ x_end_offset = 13
 y_offset = 13
 y_end_offset = 14
 
+NODE='ggl'
+# NODE='gg'
+
 
 class SegmentationDataset(GenericXYDataset):
     def read_x(self, index):
@@ -119,7 +122,7 @@ bce_with_logits = nn.BCEWithLogitsLoss()
 
 
 def myloss(x, y):
-    return bce_with_logits(x.squeeze(), y.squeeze())
+    return bce_with_logits(x.squeeze(), y.squeeze())# + 0.7 * lovasz_hinge(x.squeeze(), y.squeeze())
 
 
 def lovasz(logits, gt):
@@ -269,3 +272,10 @@ def rle_encode(mask_image):
     runs = np.where(pixels[1:] != pixels[:-1])[0] + 2
     runs[1::2] = runs[1::2] - runs[:-1:2]
     return runs
+
+
+def get_directory():
+    if NODE == 'ggl':
+        return '/home/avn8068/salt/'
+    else:
+        return '/root/data/salt/'

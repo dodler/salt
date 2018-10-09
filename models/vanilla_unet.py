@@ -16,9 +16,11 @@ class UNet(nn.Module):
         self.up3 = up(256, 64)
         self.up4 = up(128, 64)
         self.outc = outconv(64, n_classes)
+        self.dropout = nn.Dropout2d(p=0.7)
 
     def forward(self, x):
         x1 = self.inc(x)
+        # x1 = self.dropout(x1)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
         x4 = self.down3(x3)

@@ -3,25 +3,18 @@ import os
 import os.path as osp
 import pandas as pd
 import torch
-
-from models.salt_models import WiderResnetNet, LinkNet34, AlbuNet
+import numpy as np
+from models.salt_models import LinkNet34, UNet16, AlbuNet, Linknet152
+from models.vanilla_unet import UNet
 from training import Trainer
 from utils.common import myloss, iou_numpy, \
-    count_parameters, get_loader, lovasz
-from utils.current_transform import strong_aug, light_aug
+    count_parameters, get_loader, lovasz, get_directory
 from utils.ush_dataset import TGSSaltDataset
 
-MODEL_NAME = 'albunet'
-
-
 from albumentations import (
-    PadIfNeeded,
-    HorizontalFlip,
     VerticalFlip,
-    CenterCrop,
-    Crop,
+    HorizontalFlip,
     Compose,
-    Transpose,
     RandomRotate90,
     ElasticTransform,
     GridDistortion,
@@ -32,30 +25,35 @@ from albumentations import (
     RandomGamma,
     RandomBrightness
 )
+torch.manual_seed(42)
+np.random.seed(42)
 
-MODEL_NAME = 'albunet_heavy'
+MODEL_NAME = 'albunet'
 
-original_height= 101
+original_height = 101
 original_width = 101
 
 aug = Compose([
-    VerticalFlip(p=0.5),
-    RandomRotate90(p=0.5),
-    OneOf([
-        ElasticTransform(p=0.5, alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03),
-        GridDistortion(p=0.5),
-        OpticalDistortion(p=1, distort_limit=2, shift_limit=0.5)
-        ], p=0.8),
-    CLAHE(p=0.8),
-    RandomContrast(p=0.8),
-    RandomBrightness(p=0.8),
-    RandomGamma(p=0.8)])
+    HorizontalFlip(p=0.7),
+    RandomGamma(p=0.7),
+    # RandomBrightness(p=0.7),
+    GridDistortion(p=0.4),
+    OpticalDistortion(p=0.4),
+    ElasticTransform(p=0.4),
+])
+# aug = strong_aug()
+
+
+# aug = Compose([
+#     VerticalFlip(p=0.1),
+#     HorizontalFlip(p=0.5),
+#     RandomGamma(p=0.3)])
 
 if __name__ == '__main__':
 
-    directory = '/root/data/salt/'
+    directory = get_directory()
     n_fold = 8
-    depths = pd.read_csv(os.path.join("/root/data/salt/", 'depths.csv'))
+    depths = pd.read_csv(os.path.join(directory, 'depths.csv'))
     depths.sort_values('z', inplace=True)
     depths['fold'] = (list(range(n_fold)) * depths.shape[0])[:depths.shape[0]]
     depths.head()
@@ -73,10 +71,10 @@ if __name__ == '__main__':
     train[:3]
 
     DEVICE = 0
-    EPOCHS = 30
-    BATCH_SIZE = 48
+    EPOCHS = 300
+    BATCH_SIZE = 24
 
-    model = AlbuNet().type(torch.float).to(DEVICE)
+    model = Linknet152().type(torch.float).to(DEVICE)
 
     print(count_parameters(model))
 
@@ -90,7 +88,7 @@ if __name__ == '__main__':
     val_dataset = TGSSaltDataset(osp.join(directory, 'train'), x_val,
                                  is_test=False, is_val=True)
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     trainer = Trainer(myloss, iou_numpy, optimizer, MODEL_NAME, None, DEVICE)
 
     train_loader = get_loader(train_dataset, 'train', BATCH_SIZE)
@@ -100,11 +98,8 @@ if __name__ == '__main__':
         trainer.train(train_loader, model, i)
         trainer.validate(val_loader, model)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    trainer = Trainer(lovasz, iou_numpy, optimizer, MODEL_NAME, None, DEVICE)
-    trainer.best_loss = 1e10
-
-    EPOCHS = 200
+    EPOCHS=500
+    trainer.optimizer=torch.optim.SGD(model.parameters(), lr=1e-4 / 2.0, momentum=0.9)
 
     for i in range(EPOCHS):
         trainer.train(train_loader, model, i)
