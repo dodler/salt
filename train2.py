@@ -1,26 +1,12 @@
 import os
 
+import cv2
+import os.path as osp
 import pandas as pd
 import torch
-
-from models.gcn import GCN
-from models.salt_models import Linknet152, AlbuNet, UNet16, LinkNet34
-from models.vanilla_unet import UNet
-from training import Trainer
-from utils.common import myloss, iou_numpy, \
-    count_parameters, get_loader, lovasz, get_directory
-from utils.current_transform import strong_aug, light_aug
-from utils.ush_dataset import TGSSaltDataset
-import os.path as osp
-
 from albumentations import (
-    PadIfNeeded,
-    HorizontalFlip,
     VerticalFlip,
-    CenterCrop,
-    Crop,
     Compose,
-    Transpose,
     RandomRotate90,
     ElasticTransform,
     GridDistortion,
@@ -29,19 +15,19 @@ from albumentations import (
     CLAHE,
     RandomContrast,
     RandomGamma,
-    RandomBrightness
-)
+    RandomBrightness,
+    Resize)
 
-MODEL_NAME = 'gcn'
+from models.salt_models import Linknet152, LinkNet34
+from training import Trainer
+from utils.common import myloss, iou_numpy, \
+    count_parameters, get_loader, get_directory
+from utils.ush_dataset import TGSSaltDataset
+
+MODEL_NAME = 'linknet34_224'
 
 original_height = 101
 original_width = 101
-
-aug = Compose([
-    VerticalFlip(p=0.1),
-    HorizontalFlip(p=0.5),
-    RandomGamma(p=0.3)])
-
 # aug=light_aug()
 
 
@@ -56,7 +42,8 @@ aug = Compose([
     CLAHE(p=0.8),
     RandomContrast(p=0.8),
     RandomBrightness(p=0.8),
-    RandomGamma(p=0.8)])
+    RandomGamma(p=0.8),
+    Resize(width=224, height=224, interpolation=cv2.INTER_LANCZOS4)])
 
 
 if __name__ == '__main__':
@@ -81,10 +68,10 @@ if __name__ == '__main__':
     train[:3]
 
     DEVICE = 1
-    EPOCHS = 300
-    BATCH_SIZE = 64
+    EPOCHS = 1000
+    BATCH_SIZE = 24
 
-    model = GCN(input_size=(128,128),num_classes=1).type(torch.float).to(DEVICE)
+    model = LinkNet34().type(torch.float).to(DEVICE)
 
     print(count_parameters(model))
 
@@ -98,18 +85,11 @@ if __name__ == '__main__':
     val_dataset = TGSSaltDataset(osp.join(directory, 'train'), x_val,
                                  is_test=False, is_val=True)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-4, momentum=0.975)
     trainer = Trainer(myloss, iou_numpy, optimizer, MODEL_NAME, None, DEVICE)
 
     train_loader = get_loader(train_dataset, 'train', BATCH_SIZE)
     val_loader = get_loader(val_dataset, 'val', BATCH_SIZE)
-
-    for i in range(EPOCHS):
-        trainer.train(train_loader, model, i)
-        trainer.validate(val_loader, model)
-
-    EPOCHS=500
-    trainer.optimizer=torch.optim.SGD(model.parameters(), lr=1e-4 / 2.0, momentum=0.9)
 
     for i in range(EPOCHS):
         trainer.train(train_loader, model, i)

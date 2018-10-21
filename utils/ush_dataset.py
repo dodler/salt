@@ -74,12 +74,15 @@ class TGSSaltDataset(data.Dataset):
         image = load_image(image_path)
 
         if self.is_test:
+            image = cv2.resize(image, (128,128), interpolation=cv2.INTER_LANCZOS4) # todo remove me
             image = reflect_center_pad(image, mask=False)
             return (image,)
         else:
             mask = load_image(mask_path)
 
             if self.is_val:
+                image = cv2.resize(image, (128,128), interpolation=cv2.INTER_LANCZOS4)
+                mask = cv2.resize(image, (128,128), interpolation=cv2.INTER_LANCZOS4)
                 image = reflect_center_pad(image, mask=False)
                 mask = reflect_center_pad(mask, mask=True)
                 return image, mask

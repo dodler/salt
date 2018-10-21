@@ -1,5 +1,5 @@
 import os
-
+import cv2
 import os.path as osp
 import pandas as pd
 import torch
@@ -23,12 +23,12 @@ from albumentations import (
     CLAHE,
     RandomContrast,
     RandomGamma,
-    RandomBrightness
-)
+    RandomBrightness,
+    Resize)
 torch.manual_seed(42)
 np.random.seed(42)
 
-MODEL_NAME = 'albunet'
+MODEL_NAME = 'unet_128'
 
 original_height = 101
 original_width = 101
@@ -37,9 +37,10 @@ aug = Compose([
     HorizontalFlip(p=0.7),
     RandomGamma(p=0.7),
     # RandomBrightness(p=0.7),
-    GridDistortion(p=0.4),
-    OpticalDistortion(p=0.4),
-    ElasticTransform(p=0.4),
+    Resize(width=128,height=128, interpolation=cv2.INTER_LANCZOS4),
+    GridDistortion(p=0.6),
+    OpticalDistortion(p=0.6),
+    ElasticTransform(p=0.6),
 ])
 # aug = strong_aug()
 
@@ -71,10 +72,10 @@ if __name__ == '__main__':
     train[:3]
 
     DEVICE = 0
-    EPOCHS = 300
+    EPOCHS = 1000
     BATCH_SIZE = 24
 
-    model = Linknet152().type(torch.float).to(DEVICE)
+    model = UNet().type(torch.float).to(DEVICE)
 
     print(count_parameters(model))
 
@@ -93,13 +94,6 @@ if __name__ == '__main__':
 
     train_loader = get_loader(train_dataset, 'train', BATCH_SIZE)
     val_loader = get_loader(val_dataset, 'val', BATCH_SIZE)
-
-    for i in range(EPOCHS):
-        trainer.train(train_loader, model, i)
-        trainer.validate(val_loader, model)
-
-    EPOCHS=500
-    trainer.optimizer=torch.optim.SGD(model.parameters(), lr=1e-4 / 2.0, momentum=0.9)
 
     for i in range(EPOCHS):
         trainer.train(train_loader, model, i)

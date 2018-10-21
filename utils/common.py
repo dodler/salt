@@ -37,8 +37,8 @@ x_end_offset = 13
 y_offset = 13
 y_end_offset = 14
 
-NODE='ggl'
-# NODE='gg'
+# NODE='ggl'
+NODE='gg'
 
 
 class SegmentationDataset(GenericXYDataset):

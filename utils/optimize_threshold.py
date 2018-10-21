@@ -44,11 +44,10 @@ def iou_numpy(outputs: np.array, labels: np.array, thresh=0.5):
 
 
 def filter_image(img):
-    if img.sum() < 400:
-        return np.zeros(img.shape).astype(bool)
+    if img.sum() < 500:
+        return np.zeros(img.shape).astype(np.uint8)
     else:
-        return img.astype(bool)
-
+        return img.astype(np.uint8)
 
 
 def optimize_thresh(x_val, model, device, batch_size):

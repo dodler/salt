@@ -105,5 +105,4 @@ class GCN(nn.Module):
         fs3 = self.brm7(F.upsample_bilinear(fs2, fm1.size()[2:]) + gcfm4)  # 128
         fs4 = self.brm8(F.upsample_bilinear(fs3, fm0.size()[2:]))  # 256
         out = self.brm9(F.upsample_bilinear(fs4, self.input_size))  # 512
-        print('shape',out.size())
         return out

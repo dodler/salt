@@ -43,7 +43,7 @@ torch.manual_seed(0)
 DEVICE = 0
 model = UNet().to(DEVICE)
 model.eval()
-model.load_state_dict(torch.load('/tmp/pycharm_project_231/unet_best.pth.tar'))
+model.load_state_dict(torch.load('/tmp/pycharm_project_959/unet_128_best.pth.tar'))
 
 height, width = 101, 101
 
